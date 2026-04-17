@@ -18,9 +18,7 @@ ytdl = yt_dlp.YoutubeDL({
     'noplaylist': True
 })
 
-ffmpeg_options = {
-    'options': '-vn'
-}
+ffmpeg_options = {'options': '-vn'}
 
 def get_audio(url):
     return discord.FFmpegPCMAudio(url, **ffmpeg_options)
@@ -36,35 +34,46 @@ async def search_song(query):
 
     return data.get("entries", [])
 
+# ================= SAFE VOICE CONNECT =================
+async def safe_connect(interaction, channel):
+    vc = interaction.guild.voice_client
+
+    try:
+        if not vc or not vc.is_connected():
+            vc = await channel.connect(timeout=30, reconnect=True)
+
+        elif vc.channel != channel:
+            await vc.move_to(channel)
+
+        return vc
+
+    except Exception as e:
+        print("VOICE CONNECT ERROR:", e)
+        return None
+
 # ================= READY =================
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print(f"Logged in as {bot.user} ✔ BOT STABLE READY")
+    print(f"✔ Bot Ready: {bot.user}")
 
-# ================= PLAY COMMAND (FIXED CORE ISSUE) =================
+# ================= PLAY =================
 @bot.tree.command(name="play")
 async def play(interaction: discord.Interaction, query: str):
 
     await interaction.response.defer(thinking=True)
 
-    # voice check
     if not interaction.user.voice:
         return await interaction.followup.send("❌ Join voice channel first")
 
     channel = interaction.user.voice.channel
 
-    vc = interaction.guild.voice_client
+    vc = await safe_connect(interaction, channel)
+
+    if not vc:
+        return await interaction.followup.send("❌ Voice connect failed (Discord issue)")
 
     try:
-        # CONNECT / MOVE FIX
-        if not vc:
-            vc = await channel.connect()
-
-        elif vc.channel != channel:
-            await vc.move_to(channel)
-
-        # SEARCH
         results = await search_song(query)
 
         if not results:
@@ -73,18 +82,16 @@ async def play(interaction: discord.Interaction, query: str):
         song = results[0]
         url = song["url"]
 
-        # STOP OLD AUDIO SAFELY
         if vc.is_playing():
             vc.stop()
 
-        # PLAY AUDIO SAFE (NO CRASH)
         source = discord.FFmpegPCMAudio(url, options='-vn')
         vc.play(source)
 
         await interaction.followup.send(f"🎧 Now Playing: **{song['title']}**")
 
     except Exception as e:
-        print("VOICE ERROR:", e)
+        print("PLAY ERROR:", e)
         try:
             await interaction.followup.send(f"❌ Error: {e}")
         except:
@@ -98,12 +105,22 @@ async def stop(interaction: discord.Interaction):
 
     try:
         if vc:
-            await vc.disconnect()
+            await vc.disconnect(force=True)
 
         await interaction.response.send_message("⛔ Stopped")
 
     except Exception as e:
         await interaction.response.send_message(f"Error: {e}")
+
+# ================= VOICE RECOVERY =================
+@bot.event
+async def on_voice_state_update(member, before, after):
+    if member.id == bot.user.id and after.channel is None:
+        try:
+            for vc in bot.voice_clients:
+                await vc.disconnect(force=True)
+        except:
+            pass
 
 # ================= RUN =================
 bot.run(os.getenv("DISCORD_TOKEN"))
