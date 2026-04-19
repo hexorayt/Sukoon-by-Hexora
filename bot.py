@@ -126,4 +126,5 @@ async def on_ready():
     print(f"Logged in as {bot.user}")
 
 # ================= RUN =================
-bot.run("DISCORD_TOKEN")
+import os
+bot.run(os.getenv("DISCORD_TOKEN"))
