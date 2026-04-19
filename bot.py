@@ -1,68 +1,129 @@
 import discord
 from discord.ext import commands
-from discord import app_commands
 import yt_dlp
+import asyncio
 
-# Bot Setup
+# ================= BOT SETUP =================
 intents = discord.Intents.default()
 intents.message_content = True
+intents.voice_states = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# UI Components: Buttons & Select Menu
+# ================= YTDL =================
+ytdl = yt_dlp.YoutubeDL({
+    'format': 'bestaudio/best',
+    'quiet': True
+})
+
+def get_audio(url):
+    return discord.FFmpegPCMAudio(url, options='-vn')
+
+# ================= SEARCH =================
+async def search_song(query):
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(
+        None,
+        lambda: ytdl.extract_info(f"ytsearch1:{query}", download=False)
+    )
+    return data["entries"][0]
+
+# ================= GLOBAL =================
+current_vc = None
+
+# ================= UI BUTTONS =================
 class MusicControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.secondary)
-    async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Previous song...", ephemeral=True)
+    @discord.ui.button(emoji="⏸️", style=discord.ButtonStyle.secondary)
+    async def pause(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if current_vc and current_vc.is_playing():
+            current_vc.pause()
+            await interaction.response.send_message("⏸ Paused", ephemeral=True)
 
     @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.primary)
-    async def play_pause(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Play/Pause toggled!", ephemeral=True)
+    async def resume(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if current_vc and current_vc.is_paused():
+            current_vc.resume()
+            await interaction.response.send_message("▶ Resumed", ephemeral=True)
 
     @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary)
-    async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Skipping song...", ephemeral=True)
+    async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if current_vc:
+            current_vc.stop()
+            await interaction.response.send_message("⏭ Skipped", ephemeral=True)
 
+# ================= SELECT MENU =================
 class SongSelectMenu(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="Libaas", description="By Kaka", emoji="🎵"),
-            discord.SelectOption(label="Tere Mere Pyar Ki", description="Banjaran", emoji="🎵"),
-            discord.SelectOption(label="Mere Dil Ki Galiyon Mein", description="Alka Yagnik", emoji="🎵"),
+            discord.SelectOption(label="Libaas Kaka"),
+            discord.SelectOption(label="Tere Mere Pyar Ki"),
+            discord.SelectOption(label="Mere Dil Ki Galiyon Mein"),
         ]
-        super().__init__(placeholder="Select a song to play...", options=options)
+        super().__init__(placeholder="Select a song...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message(f"Selected: {self.values[0]}", ephemeral=True)
+        global current_vc
 
+        if not interaction.user.voice:
+            return await interaction.response.send_message("Join VC first", ephemeral=True)
+
+        channel = interaction.user.voice.channel
+
+        vc = interaction.guild.voice_client
+        if not vc:
+            vc = await channel.connect()
+
+        elif vc.channel != channel:
+            await vc.move_to(channel)
+
+        song_name = self.values[0]
+
+        await interaction.response.defer()
+
+        data = await search_song(song_name)
+
+        if vc.is_playing():
+            vc.stop()
+
+        source = get_audio(data["url"])
+        vc.play(source)
+
+        current_vc = vc
+
+        await interaction.followup.send(f"🎧 Playing: {song_name}")
+
+# ================= MAIN VIEW =================
 class MainView(discord.ui.View):
     def __init__(self):
-        super().__init__()
+        super().__init__(timeout=None)
         self.add_item(SongSelectMenu())
-        # The buttons are added here via a separate class or by adding them directly
+        self.add_item(MusicControlView().children[0])
+        self.add_item(MusicControlView().children[1])
+        self.add_item(MusicControlView().children[2])
 
-# Command to show the Player (Like your Screenshot)
+# ================= PLAYER COMMAND =================
 @bot.command()
 async def player(ctx):
+
     embed = discord.Embed(
-        title="ANACONDA - PLAYING UNTIL YOUR LAST BREATH",
-        description="**Now Playing:** Libaas\n**Artist:** Kaka\n**Platform:** YouTube Music",
+        title="🎧 DJ PLAYER",
+        description="Select song & control music",
         color=discord.Color.teal()
     )
-    embed.set_image(url="https://i.ytimg.com/vi/bY73vFGhSVk/maxresdefault.jpg") # Use actual song thumbnail
-    embed.add_field(name="Duration", value="04:28", inline=True)
-    embed.add_field(name="Volume", value="110%", inline=True)
-    embed.set_footer(text="Requester: HexoraYT")
 
-    view = MusicControlView()
-    view.add_item(SongSelectMenu())
-    
+    embed.set_image(url="https://i.ytimg.com/vi/bY73vFGhSVk/maxresdefault.jpg")
+
+    view = MainView()
+
     await ctx.send(embed=embed, view=view)
 
+# ================= READY =================
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user}')
+    print(f"Logged in as {bot.user}")
 
-bot.run('DISCORD_TOKEN')
+# ================= RUN =================
+bot.run("DISCORD_TOKEN")
