@@ -25,18 +25,15 @@ ytdl = yt_dlp.YoutubeDL({
         'youtube': {
             'player_client': ['android']
         }
-    }
+    },
+
+    'socket_timeout': 10,
 })
 
 def get_audio(url):
     return discord.FFmpegPCMAudio(url, options='-vn')
 
-'http_headers': {
-    'User-Agent': 'Mozilla/5.0'
-},
-'socket_timeout': 10,
-
-# ================= SEARCH =================
+# ================= SEARCH (FIXED) =================
 async def search_song(query):
     loop = asyncio.get_event_loop()
 
@@ -44,15 +41,18 @@ async def search_song(query):
         data = await asyncio.wait_for(
             loop.run_in_executor(
                 None,
-                lambda: ytdl.extract_info(f"ytsearch3:{query}", download=False)
+                lambda: ytdl.extract_info(f"ytsearch5:{query}", download=False)
             ),
-            timeout=15  # 🔥 timeout fix
+            timeout=15
         )
-
         return data.get("entries", [])
 
     except asyncio.TimeoutError:
-        print("Search Timeout ❌")
+        print("Timeout ❌")
+        return []
+
+    except Exception as e:
+        print("Search Error:", e)
         return []
 
 # ================= GLOBAL =================
@@ -86,7 +86,7 @@ class SongSelectMenu(discord.ui.Select):
     def __init__(self, songs):
         options = [
             discord.SelectOption(label=s["title"][:100], value=str(i))
-            for i, s in enumerate(songs)
+            for i, s in enumerate(songs[:5])
         ]
         super().__init__(placeholder="🎧 Select a song", options=options)
         self.songs = songs
@@ -120,6 +120,7 @@ class MainView(discord.ui.View):
     def __init__(self, songs):
         super().__init__(timeout=None)
         self.add_item(SongSelectMenu(songs))
+
         controls = MusicControlView()
         for item in controls.children:
             self.add_item(item)
@@ -133,28 +134,22 @@ async def play(interaction: discord.Interaction, query: str):
     songs = await search_song(query)
 
     if not songs:
-        return await interaction.followup.send("❌ No songs found")
+        return await interaction.followup.send("❌ No result / Timeout")
 
     view = MainView(songs)
 
     await interaction.followup.send("🎧 Select a song:", view=view)
 
-await interaction.response.defer(thinking=True)
-
-try:
-    songs = await search_song(query)
-
-    if not songs:
-        return await interaction.followup.send("❌ Timeout / No result")
-
-except Exception as e:
-    return await interaction.followup.send("❌ Server busy, try again")
-
 # ================= READY =================
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
-    print(f"✔ Logged in as {bot.user}")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} commands ✔")
+    except Exception as e:
+        print("Sync error:", e)
+
+    print(f"Logged in as {bot.user}")
 
 # ================= RUN =================
 bot.run(os.getenv("DISCORD_TOKEN"))
