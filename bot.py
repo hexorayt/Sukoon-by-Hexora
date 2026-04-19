@@ -65,4 +65,4 @@ async def player(ctx):
 async def on_ready():
     print(f'Logged in as {bot.user}')
 
-bot.run('YOUR_TOKEN')
+bot.run('DISCORD_TOKEN')
