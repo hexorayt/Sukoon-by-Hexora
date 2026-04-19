@@ -31,14 +31,29 @@ ytdl = yt_dlp.YoutubeDL({
 def get_audio(url):
     return discord.FFmpegPCMAudio(url, options='-vn')
 
+'http_headers': {
+    'User-Agent': 'Mozilla/5.0'
+},
+'socket_timeout': 10,
+
 # ================= SEARCH =================
 async def search_song(query):
     loop = asyncio.get_event_loop()
-    data = await loop.run_in_executor(
-        None,
-        lambda: ytdl.extract_info(f"ytsearch5:{query}", download=False)
-    )
-    return data["entries"]
+
+    try:
+        data = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: ytdl.extract_info(f"ytsearch3:{query}", download=False)
+            ),
+            timeout=15  # 🔥 timeout fix
+        )
+
+        return data.get("entries", [])
+
+    except asyncio.TimeoutError:
+        print("Search Timeout ❌")
+        return []
 
 # ================= GLOBAL =================
 current_vc = None
@@ -123,6 +138,17 @@ async def play(interaction: discord.Interaction, query: str):
     view = MainView(songs)
 
     await interaction.followup.send("🎧 Select a song:", view=view)
+
+await interaction.response.defer(thinking=True)
+
+try:
+    songs = await search_song(query)
+
+    if not songs:
+        return await interaction.followup.send("❌ Timeout / No result")
+
+except Exception as e:
+    return await interaction.followup.send("❌ Server busy, try again")
 
 # ================= READY =================
 @bot.event
