@@ -14,7 +14,18 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ================= YTDL =================
 ytdl = yt_dlp.YoutubeDL({
     'format': 'bestaudio/best',
-    'quiet': True
+    'quiet': True,
+    'noplaylist': True,
+
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0'
+    },
+
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android']
+        }
+    }
 })
 
 def get_audio(url):
