@@ -1,3 +1,4 @@
+import os
 import discord
 from discord.ext import commands
 import yt_dlp
@@ -24,14 +25,14 @@ async def search_song(query):
     loop = asyncio.get_event_loop()
     data = await loop.run_in_executor(
         None,
-        lambda: ytdl.extract_info(f"ytsearch1:{query}", download=False)
+        lambda: ytdl.extract_info(f"ytsearch5:{query}", download=False)
     )
-    return data["entries"][0]
+    return data["entries"]
 
 # ================= GLOBAL =================
 current_vc = None
 
-# ================= UI BUTTONS =================
+# ================= BUTTONS =================
 class MusicControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -54,77 +55,69 @@ class MusicControlView(discord.ui.View):
             current_vc.stop()
             await interaction.response.send_message("⏭ Skipped", ephemeral=True)
 
-# ================= SELECT MENU =================
+# ================= DROPDOWN =================
 class SongSelectMenu(discord.ui.Select):
-    def __init__(self):
+    def __init__(self, songs):
         options = [
-            discord.SelectOption(label="Libaas Kaka"),
-            discord.SelectOption(label="Tere Mere Pyar Ki"),
-            discord.SelectOption(label="Mere Dil Ki Galiyon Mein"),
+            discord.SelectOption(label=s["title"][:100], value=str(i))
+            for i, s in enumerate(songs)
         ]
-        super().__init__(placeholder="Select a song...", options=options)
+        super().__init__(placeholder="🎧 Select a song", options=options)
+        self.songs = songs
 
     async def callback(self, interaction: discord.Interaction):
         global current_vc
 
         if not interaction.user.voice:
-            return await interaction.response.send_message("Join VC first", ephemeral=True)
+            return await interaction.response.send_message("❌ Join VC first", ephemeral=True)
 
         channel = interaction.user.voice.channel
-
         vc = interaction.guild.voice_client
+
         if not vc:
             vc = await channel.connect()
-
         elif vc.channel != channel:
             await vc.move_to(channel)
 
-        song_name = self.values[0]
-
-        await interaction.response.defer()
-
-        data = await search_song(song_name)
+        song = self.songs[int(self.values[0])]
 
         if vc.is_playing():
             vc.stop()
 
-        source = get_audio(data["url"])
-        vc.play(source)
-
+        vc.play(get_audio(song["url"]))
         current_vc = vc
 
-        await interaction.followup.send(f"🎧 Playing: {song_name}")
+        await interaction.response.send_message(f"🎧 Playing: **{song['title']}**")
 
-# ================= MAIN VIEW =================
+# ================= VIEW =================
 class MainView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, songs):
         super().__init__(timeout=None)
-        self.add_item(SongSelectMenu())
-        self.add_item(MusicControlView().children[0])
-        self.add_item(MusicControlView().children[1])
-        self.add_item(MusicControlView().children[2])
+        self.add_item(SongSelectMenu(songs))
+        controls = MusicControlView()
+        for item in controls.children:
+            self.add_item(item)
 
-# ================= PLAYER COMMAND =================
-@bot.command()
-async def player(ctx):
+# ================= PLAY COMMAND =================
+@bot.tree.command(name="play", description="Play music")
+async def play(interaction: discord.Interaction, query: str):
 
-    embed = discord.Embed(
-        title="🎧 DJ PLAYER",
-        description="Select song & control music",
-        color=discord.Color.teal()
-    )
+    await interaction.response.defer(thinking=True)
 
-    embed.set_image(url="https://i.ytimg.com/vi/bY73vFGhSVk/maxresdefault.jpg")
+    songs = await search_song(query)
 
-    view = MainView()
+    if not songs:
+        return await interaction.followup.send("❌ No songs found")
 
-    await ctx.send(embed=embed, view=view)
+    view = MainView(songs)
+
+    await interaction.followup.send("🎧 Select a song:", view=view)
 
 # ================= READY =================
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
+    await bot.tree.sync()
+    print(f"✔ Logged in as {bot.user}")
 
 # ================= RUN =================
-import os
 bot.run(os.getenv("DISCORD_TOKEN"))
